@@ -3,6 +3,7 @@ import Data.Foldable (maximumBy, minimumBy)
 import Data.Ord
 import Data.Maybe
 import Data.List
+import Data.Foldable1 (Foldable1(toNonEmpty))
 
 -- ============Defining data structures and type synonims============
 type Label = String
@@ -12,7 +13,7 @@ data Value = VString String | VDouble Double
 
 -- tree is either a leaf
 -- or split by some categorical feature, where (Map String Tree) represent branching for Categorical nodes
--- or split by some numerical feature, where Double is a value, and left and right subtrees are > value and <= value
+-- or split by some numerical feature, where Double is a value, and left and right subtrees are <= value and > value
 data Tree = Leaf Label | CategoricalNode Feature (Map String Tree) | NumericalNode Feature Double Tree Tree
     deriving (Show)
 
@@ -90,23 +91,40 @@ getLabels = Prelude.map label
 
 majorityLabel :: [Instance] -> Label
 majorityLabel instances =
-    let count = toList (classCounts (getLabels instances))
+    let counts = toList (classCounts (getLabels instances))
     in
-        fst (maximumBy (comparing snd) count)
+        fst (maximumBy (comparing snd) counts)
 
 -- Criterion, maxDepth, minSamplesToSplit,
 -- currentDepth, features available to split on, instances at this node
 buildTree :: Criterion -> Int -> Int
     -> Int -> [Feature] -> [Instance] -> Tree
 buildTree criterion maxDepth minSamplesToSplit currentDepth features instances
-    | all (== head (getLabels instances)) (getLabels instances) = Leaf ( label (head instances))
+    -- if all samples have the same label, assign this label to the leaf
+    | (l:ls) <- getLabels instances, all (== l) ls = Leaf l
+    
+    -- if we've reached maxDepth, stop and assign majority label
     | currentDepth >= maxDepth = Leaf (majorityLabel instances)
-    | length instances < minSamplesToSplit = Leaf (majorityLabel instances)
-    | otherwise = case getBestSplit criterion features instances of
-        Nothing -> Leaf (majorityLabel instances)
-        Just (CategoricalSplit f groups _) -> CategoricalNode f (fromList [(cat, buildTree criterion maxDepth minSamplesToSplit (currentDepth+1) (Data.List.delete f features) group) | (cat, group) <- toList groups])
-        Just (NumericalSplit f t left right _) -> NumericalNode f t (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) (Data.List.delete f features) left) (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) (Data.List.delete f features) right)
 
+    -- if we don't have enough samples, assign majority label
+    | length instances < minSamplesToSplit = Leaf (majorityLabel instances)
+
+    -- otw find best split
+    | otherwise = case getBestSplit criterion features instances of
+        -- if cannot find good split, stop the process
+        Nothing -> Leaf (majorityLabel instances)
+
+        -- if best split is categorical, create categorical node
+        Just (CategoricalSplit f groups _) -> 
+            CategoricalNode f 
+                (fromList [(cat, buildTree criterion maxDepth minSamplesToSplit 
+                (currentDepth+1) (Data.List.delete f features) group) | (cat, group) <- toList groups])
+
+        -- otw create numerical node
+        Just (NumericalSplit f t left right _) -> 
+            NumericalNode f t 
+                (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) (Data.List.delete f features) left) 
+                (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) (Data.List.delete f features) right)
 
 -- ============Getting best categorical split============
 
@@ -132,14 +150,19 @@ getImpurity criterion categories =
         counts = Prelude.map getLabels groups
         impurities = Prelude.map (criterionFn criterion . classCounts) counts
         weights = Prelude.map (\g -> fromIntegral (length g) / total) groups
+    -- impurity of a split is a sum of weighted impurities, 
+    -- where we multiply ratio of size each group to total size of instances in all groups('weights' above) 
+    -- by impurity of each group
     in sum (zipWith (*) weights impurities)
 
 getCategoricalSplit :: Criterion -> [Feature] -> [Instance]
     -> Maybe (Feature, Map String [Instance], Double)
 getCategoricalSplit criterion features instances =
+    -- for each feature calculate possible results
     let results = [(f, groups, getImpurity criterion groups) | f <- features, Just groups <- [groupByCategory f instances]]
     in case results of
         [] -> Nothing
+        -- pick the best one(argmin of impurities)
         _ -> let (bestFeature, bestGroups, bestScore) = minimumBy (comparing (\ (_, _, score) -> score)) results
             in Just (bestFeature, bestGroups, bestScore)
 
@@ -158,6 +181,9 @@ validateFeature feature instances =
         then Nothing
         else Just (Prelude.map fromJust vals)
 
+-- ratio of left group to the total size of groups * impurity of left group
+-- +
+-- ratio of right group to the total size of groups * impurity of right group
 splitImpurity :: Criterion -> [Instance] -> [Instance] -> Double
 splitImpurity criterion left right =
     let total = fromIntegral (length left + length right)
@@ -167,13 +193,18 @@ splitImpurity criterion left right =
 
 bestForFeature :: Criterion -> Feature -> [Instance] -> Maybe (Double, [Instance], [Instance], Double)
 bestForFeature criterion feature instances =
+    -- all pairs should have a value for a feature to split on it
     let pairs = [(v, i) | i <- instances, Just v <- [getVDouble feature i]]
+    -- if some don't have
     in if length pairs /= length instances
+        -- we can't split
        then Nothing
 
+        -- otw
        else
             let sPairs = sortBy (comparing fst) pairs
                 sVals = Prelude.map fst sPairs
+                -- thresholds should be beetween 2 consequtive values
                 thresholds = [(v1 + v2) / 2 | (v1, v2) <- zip sVals (Data.List.drop 1 sVals), v1 /= v2]
 
                 eval t =
@@ -181,16 +212,22 @@ bestForFeature criterion feature instances =
                         r = [i | (v, i) <- sPairs, v > t]
                         score = splitImpurity criterion l r
                     in (t, l, r, score)
+                
+                -- evaluate impurity of each possible split
                 candidates = Prelude.map eval thresholds
             in  if Prelude.null candidates
                 then Nothing
+                -- return best split from candidates
                 else Just (minimumBy (comparing (\(_, _, _, s) -> s)) candidates)
 
 getNumericalSplit :: Criterion -> [Feature] -> [Instance]
     -> Maybe (Feature, Double, [Instance], [Instance], Double)
 getNumericalSplit criterion features instances =
-   let results = [(f, threshold, left, right, score) | f <- features, Just (threshold, left, right, score) <- [bestForFeature criterion f instances]]
+    -- calculate split for each feature
+    let results = [(f, threshold, left, right, score) | f <- features, Just (threshold, left, right, score) <- [bestForFeature criterion f instances]]
     in case results of
-         [] -> Nothing
-         _  -> let (bestFeature, bestThreshold, bestLeft, bestRight, bestScore) = minimumBy (comparing (\(_, _, _, _, s) -> s)) results
-               in Just (bestFeature, bestThreshold, bestLeft, bestRight, bestScore)
+            [] -> Nothing
+
+            -- return best split
+            _  -> let (bestFeature, bestThreshold, bestLeft, bestRight, bestScore) = minimumBy (comparing (\(_, _, _, _, s) -> s)) results
+                in Just (bestFeature, bestThreshold, bestLeft, bestRight, bestScore)
