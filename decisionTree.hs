@@ -26,7 +26,7 @@ data Dataset = Dataset { instances :: [Instance], allFeatures :: [Feature] }
     deriving (Show)
 
 data Criterion = Gini | Entropy
-    deriving (Eq)
+    deriving (Eq, Read, Show)
 
 -- counts how many entries of each class are there
 type ClassCounts = Map Label Double
@@ -224,3 +224,33 @@ getNumericalSplit criterion features instances =
             -- return best split
             _  -> let (bestFeature, bestThreshold, bestLeft, bestRight, bestScore) = minimumBy (comparing (\(_, _, _, _, s) -> s)) results
                 in Just (bestFeature, bestThreshold, bestLeft, bestRight, bestScore)
+
+-- ============Predicting============
+predict :: Tree -> Instance -> Label
+-- if the tree is a leaf, return the label
+predict (Leaf label) _ = label
+
+predict (CategoricalNode feature branches) inst 
+    -- if current node is categorical, lookup the feature category for instance we're predicting for
+    | Just (VString val) <- Data.Map.lookup feature (features inst), 
+
+        -- if found the value, find branch with this value and recurse
+        Just branch <- Data.Map.lookup val branches = predict branch inst
+    
+    -- otw, return empty string
+    | otherwise = ""
+
+predict (NumericalNode feature threshold left right) inst
+    -- if current node is numerical, lookup the feature value for instance we're predicting for
+    | Just (VDouble val) <- Data.Map.lookup feature (features inst) =
+        -- if value is below threshold
+        if val <= threshold
+            -- recurse into the left branch
+            then predict left inst
+        else
+            -- otw, recurse into the right branch
+            predict right inst
+            
+    -- if the feature has no value, return empty string as label
+    | otherwise = ""
+
