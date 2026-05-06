@@ -102,7 +102,7 @@ buildTree :: Criterion -> Int -> Int
 buildTree criterion maxDepth minSamplesToSplit currentDepth features instances
     -- if all samples have the same label, assign this label to the leaf
     | (l:ls) <- getLabels instances, all (== l) ls = Leaf l
-    
+
     -- if we've reached maxDepth, stop and assign majority label
     | currentDepth >= maxDepth = Leaf (majorityLabel instances)
 
@@ -173,13 +173,6 @@ getVDouble feature inst =
     case Data.Map.lookup feature (features inst) of
         Just (VDouble s) -> Just s
         _ -> Nothing
-
-validateFeature :: Feature -> [Instance] -> Maybe [Double]
-validateFeature feature instances =
-    let vals = Prelude.map (getVDouble feature) instances
-    in if any isNothing vals
-        then Nothing
-        else Just (Prelude.map fromJust vals)
 
 -- ratio of left group to the total size of groups * impurity of left group
 -- +
