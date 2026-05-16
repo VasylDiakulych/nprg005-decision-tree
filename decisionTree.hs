@@ -115,15 +115,15 @@ buildTree criterion maxDepth minSamplesToSplit currentDepth features instances
         Nothing -> Leaf (majorityLabel instances)
 
         -- if best split is categorical, create categorical node
-        Just (CategoricalSplit f groups _) -> 
-            CategoricalNode f 
-                (fromList [(cat, buildTree criterion maxDepth minSamplesToSplit 
+        Just (CategoricalSplit f groups _) ->
+            CategoricalNode f
+                (fromList [(cat, buildTree criterion maxDepth minSamplesToSplit
                 (currentDepth+1) (Data.List.delete f features) group) | (cat, group) <- toList groups])
 
         -- otw create numerical node
-        Just (NumericalSplit f t left right _) -> 
-            NumericalNode f t 
-                (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) (Data.List.delete f features) left) 
+        Just (NumericalSplit f t left right _) ->
+            NumericalNode f t
+                (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) (Data.List.delete f features) left)
                 (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) (Data.List.delete f features) right)
 
 -- ============Getting best categorical split============
@@ -205,7 +205,7 @@ bestForFeature criterion feature instances =
                         r = [i | (v, i) <- sPairs, v > t]
                         score = splitImpurity criterion l r
                     in (t, l, r, score)
-                
+
                 -- evaluate impurity of each possible split
                 candidates = Prelude.map eval thresholds
             in  if Prelude.null candidates
@@ -230,13 +230,13 @@ predict :: Tree -> Instance -> Label
 -- if the tree is a leaf, return the label
 predict (Leaf label) _ = label
 
-predict (CategoricalNode feature branches) inst 
+predict (CategoricalNode feature branches) inst
     -- if current node is categorical, lookup the feature category for instance we're predicting for
-    | Just (VString val) <- Data.Map.lookup feature (features inst), 
+    | Just (VString val) <- Data.Map.lookup feature (features inst),
 
         -- if found the value, find branch with this value and recurse
         Just branch <- Data.Map.lookup val branches = predict branch inst
-    
+
     -- otw, return empty string
     | otherwise = ""
 
@@ -250,7 +250,106 @@ predict (NumericalNode feature threshold left right) inst
         else
             -- otw, recurse into the right branch
             predict right inst
-            
+
     -- if the feature has no value, return empty string as label
     | otherwise = ""
 
+-- ============Parsing CSV dataset============
+
+-- custom split by predicate
+wordsBy :: [a] -> (a -> Bool) -> [[a]]
+wordsBy s f = go [] s
+  where
+    go acc [] = [reverse acc]
+    go acc (c:cs)
+        | not (f c) = reverse acc : go [] cs
+        | otherwise = go (c:acc) cs
+
+-- split by comma
+splitCSV :: String -> [String]
+splitCSV s = wordsBy s (/= ',')
+
+-- parsing header of the csv
+-- if entry is "feature:c", where c is some character, then parse header as type c
+-- otw parse it as enumerable type
+parseHeader :: String -> [(Feature, Char)]
+parseHeader line = Prelude.map parseEntry (splitCSV line)
+    where parseEntry entry =
+            case wordsBy entry (/= ':') of
+                (name : t : _) ->
+                    case t of
+                        (c:_) -> (name, c)
+                        _ -> (name, 'e')
+                ("" : _) -> error "name in the header cannot be empty"
+                (name : _) -> (name, 'e')
+                _ -> ("", 'e')
+
+parseValue :: Char -> String -> Maybe Value
+-- if the value is numeric, try to parse it as a Double
+parseValue 'n' s = case reads s of
+    [(v, "")] -> Just (VDouble v)
+    -- otw the value is invalid
+    _ -> Nothing
+-- otw parse it as a string
+parseValue _ s = Just (VString s)
+
+parseRow :: Int -> [(Feature, Char)] -> String -> Maybe Instance
+-- parse one row of CSV file given id of target feature, header and a line
+parseRow targetId header line =
+    -- split line by commas
+    let entries = splitCSV line
+    -- if number of entries doesn't match number of features in header, return Nothing
+    in if length entries /= length header
+        then Nothing
+        -- otw
+        else
+            -- get label from targetId-th element
+            let label = entries !! targetId
+                -- for each feature that's not target, parse the value
+                featurePairs = [(feature, value) |
+                    (i, (feature, typ)) <- zip [0..] header,
+                    -- skip target feature
+                    i /= targetId, Just value <- [parseValue typ (entries !! i)]]
+            -- if some values failed to parse, return Nothing
+            in if length featurePairs /= length header - 1
+                then Nothing
+                -- otw create an Instance
+                else Just $ Instance (fromList featurePairs) label
+
+findTargetIndex :: Feature -> [(Feature, Char)] -> Maybe Int
+-- find target feature in the header and return its index
+findTargetIndex target = Data.List.findIndex ((== target) . fst)
+
+parseDataset :: String -> Feature -> Maybe (Dataset, [Feature])
+-- parse content of the CSV file, given target feature name
+parseDataset content targetName =
+    -- split content into lines
+    let (h : ls) = lines content
+    in case ls of
+        -- if there are no data lines, return Nothing
+        [] -> Nothing
+        _ -> 
+            -- parse header
+            let header = parseHeader h
+            -- find index of target feature in header
+            in case findTargetIndex targetName header of 
+                -- if target feature not found, return Nothing
+                Nothing -> Nothing
+                Just idx -> 
+                        -- for each line parse the row
+                        let instances = Data.Maybe.mapMaybe (parseRow idx header) ls
+                            -- get all feature names except target
+                            featureNames = [feature | (i, (feature, _)) <- zip [0..] header, i /= idx]
+                        -- return Dataset and feature names
+                        in Just (Dataset instances featureNames, featureNames)
+
+
+loadDataset :: FilePath -> Feature -> IO (Dataset, [Feature])
+-- read CSV file from the given path and parse it
+loadDataset path targetName = do
+    content <- readFile path
+    case parseDataset content targetName of
+        -- if parsed successfully, return the result
+        Just result -> return result
+        -- otw throw an error
+        Nothing     -> error "Failed to parse dataset"
