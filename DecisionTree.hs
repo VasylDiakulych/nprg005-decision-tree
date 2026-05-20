@@ -1,9 +1,11 @@
+module DecisionTree where
+
 import Data.Map
 import Data.Foldable (maximumBy, minimumBy)
 import Data.Ord
 import Data.Maybe
 import Data.List
-import Data.Foldable1 (Foldable1(toNonEmpty))
+import System.Random
 
 -- ============Defining data structures and type synonims============
 type Label = String
@@ -76,11 +78,15 @@ getBestSplit :: Criterion -> [Feature] -> [Instance] -> Maybe Split
 getBestSplit criterion features instances =
     let catResult = getCategoricalSplit criterion features instances
         numResult = getNumericalSplit criterion features instances
-        candidates = case catResult of
+        -- collect categorical candidates
+        catCandidates = case catResult of
             Nothing -> []
-            Just (f, groups, score) -> CategoricalSplit f groups score : case numResult of
-                Nothing -> []
-                Just (f, t, l, r, score) -> [NumericalSplit f t l r score]
+            Just (f, groups, score) -> [CategoricalSplit f groups score]
+        -- collect numerical candidates
+        numCandidates = case numResult of
+            Nothing -> []
+            Just (f, t, l, r, score) -> [NumericalSplit f t l r score]
+        candidates = catCandidates ++ numCandidates
 
     in case candidates of
         [] -> Nothing
@@ -123,8 +129,8 @@ buildTree criterion maxDepth minSamplesToSplit currentDepth features instances
         -- otw create numerical node
         Just (NumericalSplit f t left right _) ->
             NumericalNode f t
-                (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) (Data.List.delete f features) left)
-                (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) (Data.List.delete f features) right)
+                (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) features left)
+                (buildTree criterion maxDepth minSamplesToSplit (currentDepth + 1) features right)
 
 -- ============Getting best categorical split============
 
@@ -267,7 +273,10 @@ wordsBy s f = go [] s
 
 -- split by comma
 splitCSV :: String -> [String]
-splitCSV s = wordsBy s (/= ',')
+splitCSV s = fmap trim (wordsBy s (/= ','))
+
+trim :: String -> String
+trim = dropWhile (== ' ') . dropWhileEnd (== ' ')
 
 -- parsing header of the csv
 -- if entry is "feature:c", where c is some character, then parse header as type c
@@ -328,14 +337,14 @@ parseDataset content targetName =
     in case ls of
         -- if there are no data lines, return Nothing
         [] -> Nothing
-        _ -> 
+        _ ->
             -- parse header
             let header = parseHeader h
             -- find index of target feature in header
-            in case findTargetIndex targetName header of 
+            in case findTargetIndex targetName header of
                 -- if target feature not found, return Nothing
                 Nothing -> Nothing
-                Just idx -> 
+                Just idx ->
                         -- for each line parse the row
                         let instances = Data.Maybe.mapMaybe (parseRow idx header) ls
                             -- get all feature names except target
@@ -353,3 +362,15 @@ loadDataset path targetName = do
         Just result -> return result
         -- otw throw an error
         Nothing     -> error "Failed to parse dataset"
+
+-- generates list of random integers
+-- zips them with list of instances
+-- sort tuples by integers
+-- pick only instances
+shuffle :: StdGen -> [a] -> [a]
+shuffle gen xs = Prelude.map snd $ sortBy (comparing fst) $ zip (randoms gen :: [Int]) xs
+
+splitDataset :: Double -> Int -> [Instance] -> ([Instance], [Instance])
+splitDataset fraction seed dataset =
+    let size = round (fraction * fromIntegral (length dataset))
+    in Data.List.splitAt size (shuffle (mkStdGen seed) dataset)
