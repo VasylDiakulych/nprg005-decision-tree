@@ -381,16 +381,18 @@ splitDataset fraction seed dataset =
     -- split shuffled dataset into (train, test)
     in Data.List.splitAt size shuffled
 
+-- helper function to turn
 floatFormatted :: Double -> Int -> String
 floatFormatted value n =
     let factor = 10 ^ n
         num = round (value * fromIntegral factor) :: Int
         whole = num `div` factor
         frac  = num `mod` factor
-    in show whole ++ "." ++ pad frac
+    in show whole ++ "." ++ pad frac n
   where
-    pad x | x < 10 = "0" ++ show x
-          | otherwise = show x
+    pad x n =
+        let s = show x
+        in replicate (n - length s) '0' ++ s
 
 -- load dataset from CSV file, split into train and test,
 -- build a decision tree, evaluate it and print accuracy
