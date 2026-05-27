@@ -5,6 +5,7 @@ import Data.Maybe
 import Data.List
 import System.Environment
 import System.Random
+import Text.Read.Lex (numberToFixed)
 
 -- ============Defining data structures and type synonims============
 type Label = String
@@ -381,7 +382,9 @@ splitDataset fraction seed dataset =
     -- split shuffled dataset into (train, test)
     in Data.List.splitAt size shuffled
 
--- helper function to turn
+-- helper function get a string
+-- from floating point number
+-- with arbitrary precision
 floatFormatted :: Double -> Int -> String
 floatFormatted value n =
     let factor = 10 ^ n
