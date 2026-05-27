@@ -1,10 +1,9 @@
-module DecisionTree where
-
 import Data.Map
 import Data.Foldable (maximumBy, minimumBy)
 import Data.Ord
 import Data.Maybe
 import Data.List
+import System.Environment
 import System.Random
 
 -- ============Defining data structures and type synonims============
@@ -39,7 +38,7 @@ classCounts :: [Label] -> ClassCounts
 classCounts labels = fromListWith (+) [(l, 1) | l <- labels]
 
 -- c_Gini(T) = sum (p_T(k)(1 - p_T(k)))
--- where T is a set of instances 
+-- where T is a set of instances
 -- k is a class
 -- p_T(k) - proportion of class k in a region T
 gini :: ClassCounts -> Double
@@ -49,7 +48,7 @@ gini counts =
     in sum [p * (1 - p) | p <- ps, p > 0]
 
 -- c_entropy(T) = H(p_T) = - sum_{k, p_T(k) != 0} (p_T(k) log p_T(k))
--- where T is a set of instances 
+-- where T is a set of instances
 -- H(p_T) - entropy of vector of probabilities p_T
 -- k is a class
 -- p_T(k) - proportion of class k in a region T
@@ -156,8 +155,8 @@ getImpurity criterion categories =
         counts = Prelude.map getLabels groups
         impurities = Prelude.map (criterionFn criterion . classCounts) counts
         weights = Prelude.map (\g -> fromIntegral (length g) / total) groups
-    -- impurity of a split is a sum of weighted impurities, 
-    -- where we multiply ratio of size each group to total size of instances in all groups('weights' above) 
+    -- impurity of a split is a sum of weighted impurities,
+    -- where we multiply ratio of size each group to total size of instances in all groups('weights' above)
     -- by impurity of each group
     in sum (zipWith (*) weights impurities)
 
@@ -363,14 +362,82 @@ loadDataset path targetName = do
         -- otw throw an error
         Nothing     -> error "Failed to parse dataset"
 
--- generates list of random integers
--- zips them with list of instances
--- sort tuples by integers
--- pick only instances
+-- shuffle list of instances using System.Random
+-- generate infinite list of pseudo-random integers
+-- zip each instance with a random integer
+-- sort pairs by random keys
+-- extract only the instances in new order
 shuffle :: StdGen -> [a] -> [a]
 shuffle gen xs = Prelude.map snd $ sortBy (comparing fst) $ zip (randoms gen :: [Int]) xs
 
+-- split a dataset into training and testing sets by given fraction
+-- using a seed for reproducible shuffling
 splitDataset :: Double -> Int -> [Instance] -> ([Instance], [Instance])
 splitDataset fraction seed dataset =
-    let size = round (fraction * fromIntegral (length dataset))
-    in Data.List.splitAt size (shuffle (mkStdGen seed) dataset)
+    -- shuffle instances first with the given seed
+    let shuffled = shuffle (mkStdGen seed) dataset
+        -- calculate number of training examples from the fraction
+        size = round (fraction * fromIntegral (length shuffled))
+    -- split shuffled dataset into (train, test)
+    in Data.List.splitAt size shuffled
+
+floatFormatted :: Double -> Int -> String
+floatFormatted value n =
+    let factor = 10 ^ n
+        num = round (value * fromIntegral factor) :: Int
+        whole = num `div` factor
+        frac  = num `mod` factor
+    in show whole ++ "." ++ pad frac
+  where
+    pad x | x < 10 = "0" ++ show x
+          | otherwise = show x
+
+-- load dataset from CSV file, split into train and test,
+-- build a decision tree, evaluate it and print accuracy
+run :: FilePath -> Double -> Feature -> Int -> Int -> Int -> Criterion -> IO ()
+run file fraction target seed maxDepth minSamples criterion = do
+    -- parse the dataset from the file and get instances and feature names
+    (Dataset instances features, _) <- loadDataset file target
+    -- split dataset into training and testing sets
+    let (train, test) = splitDataset fraction seed instances
+        -- build the decision tree using training set
+        tree = buildTree criterion maxDepth minSamples 0 features train
+        -- count how many predictions on the test set are correct
+        correct = length [() | inst <- test, predict tree inst == label inst]
+        total = length test
+    -- print accuracy in the format "correct/total (XX.XX%) classified correctly"
+    putStrLn $ show correct ++ "/" ++ show total ++ " (" ++ floatFormatted (fromIntegral correct / fromIntegral total * 100) 2 ++ "%) classified correctly"
+
+-- default values for optional command line arguments
+stdSeed = 42
+stdDepth = 5
+stdMinSamples = 2
+stdCriterion = Gini
+
+-- parse command line arguments and run the program
+main :: IO ()
+main = do
+    args <- getArgs
+    case args of
+        -- required: file, fraction and target variable name
+        [file, fractionString, target] ->
+            run file (read fractionString) target stdSeed stdDepth stdMinSamples stdCriterion
+
+        -- optionally specify seed for reproducible shuffle
+        [file, fractionString, target, seed] ->
+            run file (read fractionString) target (read seed) stdDepth stdMinSamples stdCriterion
+
+        -- optionally specify max depth of the tree
+        [file, fractionString, target, seed, maxDepth] ->
+            run file (read fractionString) target (read seed) (read maxDepth) stdMinSamples stdCriterion
+
+        -- optionally specify min number of samples to split
+        [file, fractionString, target, seed, maxDepth, minSamples] ->
+            run file (read fractionString) target (read seed) (read maxDepth) (read minSamples) stdCriterion
+
+        -- optionally specify criterion (Gini or Entropy)
+        [file, fractionString, target, seed, maxDepth, minSamples, criterion] ->
+            run file (read fractionString) target (read seed) (read maxDepth) (read minSamples) (read criterion)
+
+        -- if arguments don't match any valid pattern, print usage
+        _ -> putStrLn "Usage: runghc file.csv fraction target [seed] [maxDepth] [minSamples] [criterion]"
