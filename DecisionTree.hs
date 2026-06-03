@@ -17,7 +17,7 @@ data Value = VString String | VDouble Double
 -- or split by some categorical feature, where (Map String Tree) represent branching for Categorical nodes
 -- or split by some numerical feature, where Double is a value, and left and right subtrees are <= value and > value
 data Tree = Leaf Label | CategoricalNode Feature (Map String Tree) | NumericalNode Feature Double Tree Tree
-    deriving (Show)
+    deriving (Show, Read)
 
 -- instance(the same as sample or example) from the labeled dataset
 data Instance = Instance { features :: Map Feature Value, label :: Label }
@@ -411,7 +411,47 @@ run file fraction target seed maxDepth minSamples criterion = do
         correct = length [() | inst <- test, predict tree inst == label inst]
         total = length test
     -- print accuracy in the format "correct/total (XX.XX%) classified correctly"
-    putStrLn $ show correct ++ "/" ++ show total ++ " (" ++ floatFormatted (fromIntegral correct / fromIntegral total * 100) 2 ++ "%) classified correctly"
+    putStrLn(show correct ++ "/" ++ show total ++ " (" ++ floatFormatted (fromIntegral correct / fromIntegral total * 100) 2 ++ "%) classified correctly")
+
+-- write tree to the file
+saveTree :: FilePath -> Tree -> IO ()
+saveTree path tree = writeFile path (show tree)
+
+-- load tree from the file
+loadTree :: FilePath -> IO Tree
+loadTree path = do
+    content <- readFile path
+    return (read content)
+
+-- wrapper to train a tree on dataset with given parameters and save into a file treeFile
+runTrainAndSave :: [String] -> IO ()
+runTrainAndSave [file, fractionString, target, seed, maxDepth, minSamples, criterion, treeFile] = do
+    (Dataset instances features, _) <- loadDataset file target
+    let (train, test) = splitDataset (read fractionString) (read seed) instances
+        tree = buildTree (read criterion) (read maxDepth) (read minSamples) 0 features train
+        correct = length [() | inst <- test, predict tree inst == label inst]
+        total = length test
+    saveTree treeFile tree
+    putStrLn("Tree saved to " ++ treeFile)
+    putStrLn(show correct ++ "/" ++ show total ++ " (" ++ floatFormatted (fromIntegral correct / fromIntegral total * 100) 2 ++ "%) classified correctly")
+runTrainAndSave _ = putStrLn "Usage: runghc save dataset.csv fraction target seed maxDepth minSamples criterion treeFileName"
+
+-- wrapper to use tree at treeFile file for prediction of "file" dataset with "target" target column
+runPredict :: [String] -> IO ()
+runPredict [treeFile, file, target] = do
+    tree <- loadTree treeFile
+    (Dataset instances _, _) <- loadDataset file target
+    let correct = length [() | inst <- instances, predict tree inst == label inst]
+        total = length instances
+    putStrLn(show correct ++ "/" ++ show total ++ " (" ++ floatFormatted (fromIntegral correct / fromIntegral total * 100) 2 ++ "%) classified correctly")
+runPredict _ = putStrLn "Usage: runghc predict treeFile tree.csv target"
+
+-- printing usage
+printUsage :: IO ()
+printUsage = do
+    putStrLn "Usage: runghc dataset.csv fraction target [seed] [maxDepth] [minSamples] [criterion]"
+    putStrLn "       runghc save dataset.csv fraction target seed maxDepth minSamples criterion treeFileName"
+    putStrLn "       runghc predict treeFile tree.csv target"
 
 -- default values for optional command line arguments
 stdSeed = 42
@@ -424,25 +464,16 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        -- required: file, fraction and target variable name
+        ("save" : rest)    -> runTrainAndSave rest
+        ("predict" : rest) -> runPredict rest
         [file, fractionString, target] ->
             run file (read fractionString) target stdSeed stdDepth stdMinSamples stdCriterion
-
-        -- optionally specify seed for reproducible shuffle
         [file, fractionString, target, seed] ->
             run file (read fractionString) target (read seed) stdDepth stdMinSamples stdCriterion
-
-        -- optionally specify max depth of the tree
         [file, fractionString, target, seed, maxDepth] ->
             run file (read fractionString) target (read seed) (read maxDepth) stdMinSamples stdCriterion
-
-        -- optionally specify min number of samples to split
         [file, fractionString, target, seed, maxDepth, minSamples] ->
             run file (read fractionString) target (read seed) (read maxDepth) (read minSamples) stdCriterion
-
-        -- optionally specify criterion (Gini or Entropy)
         [file, fractionString, target, seed, maxDepth, minSamples, criterion] ->
             run file (read fractionString) target (read seed) (read maxDepth) (read minSamples) (read criterion)
-
-        -- if arguments don't match any valid pattern, print usage
-        _ -> putStrLn "Usage: runghc file.csv fraction target [seed] [maxDepth] [minSamples] [criterion]"
+        _ -> printUsage
