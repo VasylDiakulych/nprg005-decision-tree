@@ -39,13 +39,13 @@ runghc DecisionTree.hs Datasets/iris.csv 0.8 class 42 5 2 Gini
 runghc DecisionTree.hs save file.csv fraction target seed maxDepth minSamples criterion treeFile
 ```
 Same as above, but writes the trained tree to `treeFile`
-### 3. Load Tree and Predict
+### 3. Load Tree and Predict Using Entire Set
 ```
 runghc DecisionTree.hs predictSet treeFile file.csv target
 ```
 Loads a previously saved tree and evaluates it on the given dataset
 
-### 4. Predict Using Tree
+### 4. Load Tree and Predict on One Sample
 
 ```
 runghc DecisionTree.hs predictOne treeFile feature1=val1 feature2=val2 ...
