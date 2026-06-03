@@ -43,9 +43,16 @@ runghc save file.csv fraction target seed maxDepth minSamples criterion treeFile
 Same as above, but writes the trained tree to `treeFile`
 ### 3. Load Tree and Predict
 ```
-rughc predict treeFile file.csv target
+runghc predictSet treeFile file.csv target
 ```
 Loads a previously saved tree and evaluates it on the given dataset
+
+### 4. Predict Using Tree
+
+```
+runghc predictOne treeFile feature1=val1 feature2=val2 ...
+```
+Loads a previously saved tree and predict target label for a given sample
 
 ## Datasets
 
