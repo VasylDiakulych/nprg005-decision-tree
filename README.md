@@ -4,14 +4,12 @@ A command-line tool for CART decision trees
 
 ## Format support
 
-Tool supports .csv files with value type encoded in header as a suffix
+Tool supports .csv files with value type encoded in header as a suffix(:e for categorical features, :n for numerical)
 
-**Example (`playTennis.csv`):**
+**Example (`adult.csv`):**
 ```
-Outlook:e,Temperature:e,Humidity:e,Wind:e,Play_Tennis:e
-Sunny,Hot,High,Weak,No
-Sunny,Hot,High,Strong,No
-Overcast,Hot,High,Weak,Yes
+age:n,workClass:e,fnlwgt:n,education:e,education-num:n,marital_status:e,occupation:e,relationship:e,race:e,sex:e,capital-gain:n,capital-loss:n,hours-per-week:n,native-country:e,result:e
+39, State-gov, 77516, Bachelors, 13, Never-married, Adm-clerical, Not-in-family, White, Male, 2174, 0, 40, United-States, <=50Ks
 ```
 
 ## Usage
