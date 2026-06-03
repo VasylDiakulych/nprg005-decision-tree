@@ -4,14 +4,12 @@ A command-line tool for CART decision trees
 
 ## Format support
 
-Tool supports .csv files with value type encoded in header as a suffix
+Tool supports .csv files with value type encoded in header as a suffix(:e for categorical features, :n for numerical)
 
-**Example (`playTennis.csv`):**
+**Example (`adult.csv`):**
 ```
-Outlook:e,Temperature:e,Humidity:e,Wind:e,Play_Tennis:e
-Sunny,Hot,High,Weak,No
-Sunny,Hot,High,Strong,No
-Overcast,Hot,High,Weak,Yes
+age:n,workClass:e,fnlwgt:n,education:e,education-num:n,marital_status:e,occupation:e,relationship:e,race:e,sex:e,capital-gain:n,capital-loss:n,hours-per-week:n,native-country:e,result:e
+39, State-gov, 77516, Bachelors, 13, Never-married, Adm-clerical, Not-in-family, White, Male, 2174, 0, 40, United-States, <=50Ks
 ```
 
 ## Usage
@@ -51,14 +49,11 @@ Loads a previously saved tree and evaluates it on the given dataset
 
 ## Datasets
 
-Four datasets are included in `Datasets/`:
+4 datasets are included in `Datasets/`:
 
-playTennis.csv - 14 instances, 4 categorical features, play prediction
-
-iris.csv - 150 instances, 4 numerical features, predicts flower species, ~95% accuracy
-
-agaricus-lepiota.csv - 8.124 instances, 22 categorical features, mushroom edibility prediction, ~99% accuracy
-
-adult.csv - 32,561 instances, 14 mixed features, income prediction, ~80% accuracy
+1. playTennis.csv - 14 instances, 4 categorical features, play prediction
+2. iris.csv - 150 instances, 4 numerical features, predicts flower species, ~95% accuracy
+3. agaricus-lepiota.csv - 8.124 instances, 22 categorical features, mushroom edibility prediction, ~99% accuracy
+4. adult.csv - 32,561 instances, 14 mixed features, income prediction, ~80% accuracy
 
 Requires GHC 9.6+ with  `random` package.
