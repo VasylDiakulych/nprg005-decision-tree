@@ -444,14 +444,31 @@ runPredict [treeFile, file, target] = do
     let correct = length [() | inst <- instances, predict tree inst == label inst]
         total = length instances
     putStrLn(show correct ++ "/" ++ show total ++ " (" ++ floatFormatted (fromIntegral correct / fromIntegral total * 100) 2 ++ "%) classified correctly")
-runPredict _ = putStrLn "Usage: runghc predict treeFile tree.csv target"
+runPredict _ = putStrLn "Usage: runghcSet predict treeFile tree.csv target"
+
+-- predict class for a single instance from command line feature=value pairs
+runPredictOne :: [String] -> IO ()
+runPredictOne (treeFile : pairs) = do
+    tree <- loadTree treeFile
+    let features = fromList (Prelude.map parseFeature pairs)
+        inst = Instance features "?"
+    putStrLn (predict tree inst)
+  where
+    parseFeature s =
+        let (key, '=' : val) = break (== '=') s
+            value = case reads val of
+                [(v, "")] -> VDouble v
+                _         -> VString val
+        in (key, value)
+runPredictOne _ = putStrLn "Usage: runghc predictOne treeFile feature1=val1 feature2=val2 ..."
 
 -- printing usage
 printUsage :: IO ()
 printUsage = do
     putStrLn "Usage: runghc dataset.csv fraction target [seed] [maxDepth] [minSamples] [criterion]"
     putStrLn "       runghc save dataset.csv fraction target seed maxDepth minSamples criterion treeFileName"
-    putStrLn "       runghc predict treeFile tree.csv target"
+    putStrLn "       runghc predictSet treeFile tree.csv target"
+    putStrLn "       runghc predictOne treeFile feature1=val1 feature2=val2 ..."
 
 -- default values for optional command line arguments
 stdSeed = 42
@@ -464,8 +481,9 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        ("save" : rest)    -> runTrainAndSave rest
-        ("predict" : rest) -> runPredict rest
+        ("save" : rest) -> runTrainAndSave rest
+        ("predictSet" : rest) -> runPredict rest
+        ("predictOne" : rest) -> runPredictOne rest
         [file, fractionString, target] ->
             run file (read fractionString) target stdSeed stdDepth stdMinSamples stdCriterion
         [file, fractionString, target, seed] ->
