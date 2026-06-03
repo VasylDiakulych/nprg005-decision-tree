@@ -14,8 +14,6 @@ age:n,workClass:e,fnlwgt:n,education:e,education-num:n,marital_status:e,occupati
 
 ## Usage
 
-Three modes of operation:
-
 ### 1. Train and Evaluate
 ```
 runghc DecisionTree.hs dataset.csv fraction target [seed] [maxDepth] [minSamples] [criterion]
