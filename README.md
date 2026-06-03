@@ -18,7 +18,7 @@ Three modes of operation:
 
 ### 1. Train and Evaluate
 ```
-runghc dataset.csv fraction target [seed] [maxDepth] [minSamples] [criterion]
+runghc DecisionTree.hs dataset.csv fraction target [seed] [maxDepth] [minSamples] [criterion]
 ```
 
 **Arguments:**
@@ -32,25 +32,25 @@ runghc dataset.csv fraction target [seed] [maxDepth] [minSamples] [criterion]
 
 **Example:**
 ```
-runghc Datasets/iris.csv 0.8 class 42 5 2 Gini
+runghc DecisionTree.hs Datasets/iris.csv 0.8 class 42 5 2 Gini
 # Output: 28/30 (93.33%) classified correctly
 ```
 
 ### 2. Train and Save Tree
 ```
-runghc save file.csv fraction target seed maxDepth minSamples criterion treeFile
+runghc DecisionTree.hs save file.csv fraction target seed maxDepth minSamples criterion treeFile
 ```
 Same as above, but writes the trained tree to `treeFile`
 ### 3. Load Tree and Predict
 ```
-runghc predictSet treeFile file.csv target
+runghc DecisionTree.hs predictSet treeFile file.csv target
 ```
 Loads a previously saved tree and evaluates it on the given dataset
 
 ### 4. Predict Using Tree
 
 ```
-runghc predictOne treeFile feature1=val1 feature2=val2 ...
+runghc DecisionTree.hs predictOne treeFile feature1=val1 feature2=val2 ...
 ```
 Loads a previously saved tree and predict target label for a given sample
 
