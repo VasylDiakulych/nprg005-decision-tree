@@ -5,9 +5,9 @@ import Data.Maybe
 import Data.List
 import System.Environment
 import System.Random
-import Text.Read.Lex (numberToFixed)
+import Text.Printf
 
--- ============Defining data structures and type synonims============
+-- ============Defining data structures and type synonyms============
 type Label = String
 type Feature = String
 data Value = VString String | VDouble Double
@@ -60,9 +60,8 @@ entropy counts =
     in -sum [p * log p | p <- ps, p > 0]
 
 criterionFn :: Criterion -> (ClassCounts -> Double)
-criterionFn criterion
-    | criterion == Entropy = entropy
-    | otherwise = gini
+criterionFn Entropy = entropy
+criterionFn _ = gini
 
 -- ============Tree building============
 
@@ -165,11 +164,14 @@ getCategoricalSplit :: Criterion -> [Feature] -> [Instance]
     -> Maybe (Feature, Map String [Instance], Double)
 getCategoricalSplit criterion features instances =
     -- for each feature calculate possible results
-    let results = [(f, groups, getImpurity criterion groups) | f <- features, Just groups <- [groupByCategory f instances]]
+    let results =
+            [(f, groups, getImpurity criterion groups) |
+            f <- features, Just groups <- [groupByCategory f instances]]
     in case results of
         [] -> Nothing
         -- pick the best one(argmin of impurities)
-        _ -> let (bestFeature, bestGroups, bestScore) = minimumBy (comparing (\ (_, _, score) -> score)) results
+        _ -> let (bestFeature, bestGroups, bestScore) =
+                    minimumBy (comparing (\ (_, _, score) -> score)) results
             in Just (bestFeature, bestGroups, bestScore)
 
 -- ============Getting best numerical split============
@@ -188,7 +190,8 @@ splitImpurity criterion left right =
     let total = fromIntegral (length left + length right)
         leftImpurity  = criterionFn criterion (classCounts (getLabels left))
         rightImpurity = criterionFn criterion (classCounts (getLabels right))
-    in (fromIntegral (length left) / total) * leftImpurity + (fromIntegral (length right) / total) * rightImpurity
+    in  (fromIntegral (length left) / total) * leftImpurity +
+        (fromIntegral (length right) / total) * rightImpurity
 
 bestForFeature :: Criterion -> Feature -> [Instance] -> Maybe (Double, [Instance], [Instance], Double)
 bestForFeature criterion feature instances =
@@ -204,7 +207,8 @@ bestForFeature criterion feature instances =
             let sPairs = sortBy (comparing fst) pairs
                 sVals = Prelude.map fst sPairs
                 -- thresholds should be beetween 2 consequtive values
-                thresholds = [(v1 + v2) / 2 | (v1, v2) <- zip sVals (Data.List.drop 1 sVals), v1 /= v2]
+                thresholds = [(v1 + v2) / 2 |
+                    (v1, v2) <- zip sVals (Data.List.drop 1 sVals), v1 /= v2]
 
                 eval t =
                     let l = [i | (v, i) <- sPairs, v <= t]
@@ -223,12 +227,14 @@ getNumericalSplit :: Criterion -> [Feature] -> [Instance]
     -> Maybe (Feature, Double, [Instance], [Instance], Double)
 getNumericalSplit criterion features instances =
     -- calculate split for each feature
-    let results = [(f, threshold, left, right, score) | f <- features, Just (threshold, left, right, score) <- [bestForFeature criterion f instances]]
+    let results = [(f, threshold, left, right, score) | f <- features,
+            Just (threshold, left, right, score) <- [bestForFeature criterion f instances]]
     in case results of
             [] -> Nothing
 
             -- return best split
-            _  -> let (bestFeature, bestThreshold, bestLeft, bestRight, bestScore) = minimumBy (comparing (\(_, _, _, _, s) -> s)) results
+            _  -> let (bestFeature, bestThreshold, bestLeft, bestRight, bestScore) =
+                        minimumBy (comparing (\(_, _, _, _, s) -> s)) results
                 in Just (bestFeature, bestThreshold, bestLeft, bestRight, bestScore)
 
 -- ============Predicting============
@@ -348,70 +354,71 @@ parseDataset content targetName =
                         -- for each line parse the row
                         let instances = Data.Maybe.mapMaybe (parseRow idx header) ls
                             -- get all feature names except target
-                            featureNames = [feature | (i, (feature, _)) <- zip [0..] header, i /= idx]
+                            featureNames =
+                                [feature | (i, (feature, _)) <- zip [0..] header, i /= idx]
                         -- return Dataset and feature names
                         in Just (Dataset instances featureNames, featureNames)
 
 
-loadDataset :: FilePath -> Feature -> IO (Dataset, [Feature])
+loadDataset :: FilePath -> Feature -> IO (Either String (Dataset, [Feature]))
 -- read CSV file from the given path and parse it
 loadDataset path targetName = do
     content <- readFile path
-    case parseDataset content targetName of
-        -- if parsed successfully, return the result
-        Just result -> return result
-        -- otw throw an error
-        Nothing     -> error "Failed to parse dataset"
-
--- shuffle list of instances using System.Random
--- generate infinite list of pseudo-random integers
--- zip each instance with a random integer
--- sort pairs by random keys
--- extract only the instances in new order
-shuffle :: StdGen -> [a] -> [a]
-shuffle gen xs = Prelude.map snd $ sortBy (comparing fst) $ zip (randoms gen :: [Int]) xs
+    let header = parseHeader (head (lines content))
+        targetType = Prelude.lookup targetName header
+    case targetType of
+        Just 'n' -> return (Left
+            ("target column '" ++ targetName ++ "' is numerical, only classification supported"))
+        _ -> case parseDataset content targetName of
+            -- if parsed successfully, return the result
+            Just result -> return (Right result)
+            -- target column not found
+            Nothing     -> return (Left
+                ("target column '" ++ targetName ++ "' not found in header of " ++ path))
 
 -- split a dataset into training and testing sets by given fraction
 -- using a seed for reproducible shuffling
 splitDataset :: Double -> Int -> [Instance] -> ([Instance], [Instance])
 splitDataset fraction seed dataset =
     -- shuffle instances first with the given seed
-    let shuffled = shuffle (mkStdGen seed) dataset
+    let (shuffled, _) = uniformShuffleList dataset (mkStdGen seed)
         -- calculate number of training examples from the fraction
         size = round (fraction * fromIntegral (length shuffled))
     -- split shuffled dataset into (train, test)
     in Data.List.splitAt size shuffled
 
--- helper function get a string
--- from floating point number
--- with arbitrary precision
-floatFormatted :: Double -> Int -> String
-floatFormatted value n =
-    let factor = 10 ^ n
-        num = round (value * fromIntegral factor) :: Int
-        whole = num `div` factor
-        frac  = num `mod` factor
-    in show whole ++ "." ++ pad frac n
-  where
-    pad x n =
-        let s = show x
-        in replicate (n - length s) '0' ++ s
+-- wrapper for the run function to patternmatch different arguments and put standard values for the missing ones(if possible)
+runWrapper :: [String] -> IO()
+runWrapper [file, fraction, target] = run file (read fraction) target (read stdSeed) (read stdDepth) (read stdMinSamples) (read stdCriterion)
+runWrapper [file, fraction, target, seed] = run file (read fraction) target (read seed) (read stdDepth) (read stdMinSamples) (read stdCriterion)
+runWrapper [file, fraction, target, seed, maxDepth] = run file (read fraction) target (read seed) (read maxDepth) (read stdMinSamples) (read stdCriterion)
+runWrapper [file, fraction, target, seed, maxDepth, minSamples] = run file (read fraction) target (read seed) (read maxDepth) (read minSamples) (read stdCriterion)
+runWrapper [file, fraction, target, seed, maxDepth, minSamples, criterion] =
+    case parseCriterion criterion of
+        Left err -> putStrLn err
+        Right crit -> run file (read fraction) target (read seed) (read maxDepth) (read minSamples) crit
+runWrapper _ = printUsage
 
 -- load dataset from CSV file, split into train and test,
 -- build a decision tree, evaluate it and print accuracy
 run :: FilePath -> Double -> Feature -> Int -> Int -> Int -> Criterion -> IO ()
 run file fraction target seed maxDepth minSamples criterion = do
     -- parse the dataset from the file and get instances and feature names
-    (Dataset instances features, _) <- loadDataset file target
-    -- split dataset into training and testing sets
-    let (train, test) = splitDataset fraction seed instances
-        -- build the decision tree using training set
-        tree = buildTree criterion maxDepth minSamples 0 features train
-        -- count how many predictions on the test set are correct
-        correct = length [() | inst <- test, predict tree inst == label inst]
-        total = length test
-    -- print accuracy in the format "correct/total (XX.XX%) classified correctly"
-    putStrLn(show correct ++ "/" ++ show total ++ " (" ++ floatFormatted (fromIntegral correct / fromIntegral total * 100) 2 ++ "%) classified correctly")
+    result <- loadDataset file target
+    case result of
+        Left err -> putStrLn err
+        Right (Dataset instances features, _) -> do
+            -- split dataset into training and testing sets
+            let (train, test) = splitDataset fraction seed instances
+                -- build the decision tree using training set
+                tree = buildTree criterion maxDepth minSamples 0 features train
+                -- count how many predictions on the test set are correct
+                correct = length [() | inst <- test, predict tree inst == label inst]
+                total = length test
+            -- print accuracy in the format "correct/total (XX.XX%) classified correctly"
+            putStrLn $
+                printf "%d/%d (%.2f%%) classified correctly"
+                    correct total (fromIntegral correct / fromIntegral total * 100 :: Double)
 
 -- write tree to the file
 saveTree :: FilePath -> Tree -> IO ()
@@ -425,25 +432,42 @@ loadTree path = do
 
 -- wrapper to train a tree on dataset with given parameters and save into a file treeFile
 runTrainAndSave :: [String] -> IO ()
-runTrainAndSave [file, fractionString, target, seed, maxDepth, minSamples, criterion, treeFile] = do
-    (Dataset instances features, _) <- loadDataset file target
-    let (train, test) = splitDataset (read fractionString) (read seed) instances
-        tree = buildTree (read criterion) (read maxDepth) (read minSamples) 0 features train
-        correct = length [() | inst <- test, predict tree inst == label inst]
-        total = length test
-    saveTree treeFile tree
-    putStrLn("Tree saved to " ++ treeFile)
-    putStrLn(show correct ++ "/" ++ show total ++ " (" ++ floatFormatted (fromIntegral correct / fromIntegral total * 100) 2 ++ "%) classified correctly")
-runTrainAndSave _ = putStrLn "Usage: runghc save dataset.csv fraction target seed maxDepth minSamples criterion treeFileName"
+runTrainAndSave [file, fractionString, target, treeFile] = do runTrainAndSave [file, fractionString, target, treeFile, stdSeed, stdDepth, stdMinSamples, stdCriterion]
+runTrainAndSave [file, fractionString, target, treeFile, seed] = do runTrainAndSave [file, fractionString, target, treeFile, seed, stdDepth, stdMinSamples, stdCriterion]
+runTrainAndSave [file, fractionString, target, treeFile, seed, maxDepth] = do runTrainAndSave [file, fractionString, target, treeFile, seed, maxDepth, stdMinSamples, stdCriterion]
+runTrainAndSave [file, fractionString, target, treeFile, seed, maxDepth, minSamples] = do runTrainAndSave [file, fractionString, target, treeFile, seed, maxDepth, minSamples, stdCriterion]
+runTrainAndSave [file, fractionString, target, treeFile, seed, maxDepth, minSamples, criterion] = do
+    result <- loadDataset file target
+    case result of
+        Left err -> putStrLn err
+        Right (Dataset instances features, _) -> do
+            case parseCriterion criterion of
+                Left err -> putStrLn err
+                Right crit -> do
+                    let (train, test) = splitDataset (read fractionString) (read seed) instances
+                        tree = buildTree crit (read maxDepth) (read minSamples) 0 features train
+                        correct = length [() | inst <- test, predict tree inst == label inst]
+                        total = length test
+                    saveTree treeFile tree
+                    putStrLn("Tree saved to " ++ treeFile)
+                    putStrLn $
+                        printf "%d/%d (%.2f%%) classified correctly"
+                            correct total (fromIntegral correct / fromIntegral total * 100 :: Double)
+runTrainAndSave _ = putStrLn "Usage: runghc save dataset.csv fraction target treeFileName [seed] [maxDepth] [minSamples] [criterion]"
 
 -- wrapper to use tree at treeFile file for prediction of "file" dataset with "target" target column
 runPredict :: [String] -> IO ()
 runPredict [treeFile, file, target] = do
     tree <- loadTree treeFile
-    (Dataset instances _, _) <- loadDataset file target
-    let correct = length [() | inst <- instances, predict tree inst == label inst]
-        total = length instances
-    putStrLn(show correct ++ "/" ++ show total ++ " (" ++ floatFormatted (fromIntegral correct / fromIntegral total * 100) 2 ++ "%) classified correctly")
+    result <- loadDataset file target
+    case result of
+        Left err -> putStrLn err
+        Right (Dataset instances _, _) -> do
+            let correct = length [() | inst <- instances, predict tree inst == label inst]
+                total = length instances
+            putStrLn $
+                printf "%d/%d (%.2f%%) classified correctly"
+                    correct total (fromIntegral correct / fromIntegral total * 100 :: Double)
 runPredict _ = putStrLn "Usage: runghcSet predict treeFile tree.csv target"
 
 -- predict class for a single instance from command line feature=value pairs
@@ -466,15 +490,21 @@ runPredictOne _ = putStrLn "Usage: runghc predictOne treeFile feature1=val1 feat
 printUsage :: IO ()
 printUsage = do
     putStrLn "Usage: runghc dataset.csv fraction target [seed] [maxDepth] [minSamples] [criterion]"
-    putStrLn "       runghc save dataset.csv fraction target seed maxDepth minSamples criterion treeFileName"
+    putStrLn "       runghc save dataset.csv fraction target treeFileName [seed] [maxDepth] [minSamples] [criterion]"
     putStrLn "       runghc predictSet treeFile tree.csv target"
     putStrLn "       runghc predictOne treeFile feature1=val1 feature2=val2 ..."
 
 -- default values for optional command line arguments
-stdSeed = 42
-stdDepth = 5
-stdMinSamples = 2
-stdCriterion = Gini
+stdSeed = "42"
+stdDepth = "5"
+stdMinSamples = "2"
+stdCriterion = "Gini"
+
+-- safely parse impurity criterion from string
+parseCriterion :: String -> Either String Criterion
+parseCriterion s = case reads s of
+    [(c, "")] -> Right c
+    _         -> Left ("invalid criterion '" ++ s ++ "', expected 'Gini' or 'Entropy'")
 
 -- parse command line arguments and run the program
 main :: IO ()
@@ -484,14 +514,4 @@ main = do
         ("save" : rest) -> runTrainAndSave rest
         ("predictSet" : rest) -> runPredict rest
         ("predictOne" : rest) -> runPredictOne rest
-        [file, fractionString, target] ->
-            run file (read fractionString) target stdSeed stdDepth stdMinSamples stdCriterion
-        [file, fractionString, target, seed] ->
-            run file (read fractionString) target (read seed) stdDepth stdMinSamples stdCriterion
-        [file, fractionString, target, seed, maxDepth] ->
-            run file (read fractionString) target (read seed) (read maxDepth) stdMinSamples stdCriterion
-        [file, fractionString, target, seed, maxDepth, minSamples] ->
-            run file (read fractionString) target (read seed) (read maxDepth) (read minSamples) stdCriterion
-        [file, fractionString, target, seed, maxDepth, minSamples, criterion] ->
-            run file (read fractionString) target (read seed) (read maxDepth) (read minSamples) (read criterion)
-        _ -> printUsage
+        _ -> runWrapper args
